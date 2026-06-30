@@ -144,8 +144,8 @@ class EWMATrustScoreEngine:
         for device_id in device_ids:
             record = self.compute_trust_score(device_id)
             
-            # Print each device's result with an emoji status icon
-            icon = '✅' if record['status'] == 'HIGHLY_TRUSTED' else '⚠️' if record['status'] == 'TRUSTED' else '🚫'
+            # Print each device's result with a status icon
+            icon = '[OK]' if record['status'] == 'HIGHLY_TRUSTED' else '[WARN]' if record['status'] == 'TRUSTED' else '[FAIL]'
             print(f"  {icon} {device_id}: {record['new_score']:.4f} ({record['status']})")
             
             # Try to send to blockchain
