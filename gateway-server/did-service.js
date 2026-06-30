@@ -158,8 +158,39 @@ function getDIDDocument(documentHash) {
     return didDocumentStore.get(documentHash) || null;
 }
 
+/**
+ * 4. Get All Registered Devices
+ * @returns {Array} List of devices
+ */
+async function getAllDevices() {
+    // In a real implementation with Fabric, we would query the chaincode.
+    // For simulation, we return the local registry values.
+    return Array.from(localDeviceRegistry.values()).map(d => ({
+        deviceId: d.deviceId,
+        did: d.did,
+        registeredAt: d.registeredAt
+    }));
+}
+
+/**
+ * 5. Get Single Device
+ * @param {string} deviceId
+ * @returns {Object|null}
+ */
+async function getDevice(deviceId) {
+    const device = localDeviceRegistry.get(deviceId);
+    if (!device) return null;
+    return {
+        deviceId: device.deviceId,
+        did: device.did,
+        registeredAt: device.registeredAt
+    };
+}
+
 module.exports = {
     registerDeviceDID,
     authenticateDevice,
-    getDIDDocument
+    getDIDDocument,
+    getAllDevices,
+    getDevice
 };

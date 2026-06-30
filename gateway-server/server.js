@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const didService = require('./did-service');
 
 const app = express();
 const PORT = 3001;
@@ -10,45 +11,96 @@ app.use(cors({ origin: 'http://localhost:3000' }));
 // Parse JSON payloads
 app.use(express.json());
 
-// Placeholder for devices (used for health check for now)
-let registeredDevicesCount = 0;
-
 // ============================================================================
 // PAPER 1: "Blockchain-Based Decentralized Identity System" (Zaghdoudi et al., IEEE DCOSS-IoT 2025)
 // ============================================================================
 
 // Section Reference: DID Registration Phase
-app.post('/api/register', (req, res) => {
-    // TODO: Implement real DID registration logic connecting to Hyperledger Fabric
-    res.json({ success: true, message: "DID registration not implemented yet" });
+app.post('/api/register', async (req, res) => {
+    try {
+        const { deviceId, publicKey, signature, verificationMethod } = req.body;
+        
+        if (!deviceId || !publicKey || !signature || !verificationMethod) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Missing required fields: deviceId, publicKey, signature, verificationMethod" 
+            });
+        }
+
+        const result = await didService.registerDeviceDID(deviceId, publicKey, signature, verificationMethod);
+        res.status(200).json(result);
+    } catch (error) {
+        console.error(`Error in /api/register: ${error.message}`);
+        res.status(500).json({ success: false, message: "Internal server error during registration" });
+    }
 });
 
 // Section Reference: Authentication Phase
-app.post('/api/authenticate', (req, res) => {
-    // TODO: Implement real ECDSA authentication logic connecting to Hyperledger Fabric
-    res.json({ success: true, message: "Authentication not implemented yet" });
+app.post('/api/authenticate', async (req, res) => {
+    try {
+        const { deviceId, challenge, signature } = req.body;
+        
+        if (!deviceId || !challenge || !signature) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Missing required fields: deviceId, challenge, signature" 
+            });
+        }
+
+        const result = await didService.authenticateDevice(deviceId, challenge, signature);
+        res.status(200).json(result);
+    } catch (error) {
+        console.error(`Error in /api/authenticate: ${error.message}`);
+        res.status(500).json({ success: false, message: "Internal server error during authentication" });
+    }
 });
 
 // API to list all registered devices
-app.get('/api/devices', (req, res) => {
-    // TODO: Fetch all devices from DID Registry on Fabric
-    res.json({ success: true, message: "Listing devices not implemented yet", devices: [] });
+app.get('/api/devices', async (req, res) => {
+    try {
+        const devices = await didService.getAllDevices();
+        res.status(200).json({ 
+            success: true, 
+            count: devices.length,
+            devices: devices 
+        });
+    } catch (error) {
+        console.error(`Error in /api/devices: ${error.message}`);
+        res.status(500).json({ success: false, message: "Internal server error listing devices" });
+    }
 });
 
 // API to get a single device by ID
-app.get('/api/device/:deviceId', (req, res) => {
-    const { deviceId } = req.params;
-    // TODO: Fetch single device from DID Registry on Fabric
-    res.json({ success: true, message: `Get device ${deviceId} not implemented yet`, device: null });
+app.get('/api/device/:deviceId', async (req, res) => {
+    try {
+        const { deviceId } = req.params;
+        const device = await didService.getDevice(deviceId);
+        
+        if (!device) {
+            return res.status(404).json({ success: false, message: `Device ${deviceId} not found` });
+        }
+        
+        res.status(200).json({ success: true, device });
+    } catch (error) {
+        console.error(`Error in /api/device/:deviceId: ${error.message}`);
+        res.status(500).json({ success: false, message: "Internal server error fetching device" });
+    }
 });
 
 // Health check endpoint (Returns Paper reference and device count)
-app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: "UP",
-        paper_reference: "Zaghdoudi et al., IEEE DCOSS-IoT 2025, DOI: 10.1109/DCOSS-IoT65416.2025.00044",
-        device_count: registeredDevicesCount
-    });
+app.get('/api/health', async (req, res) => {
+    try {
+        const devices = await didService.getAllDevices();
+        res.status(200).json({ 
+            status: "running",
+            paper: "Zaghdoudi et al. IEEE DCOSS-IoT 2025",
+            registeredDevices: devices.length,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error(`Error in /api/health: ${error.message}`);
+        res.status(500).json({ status: "error", message: "Health check failed" });
+    }
 });
 
 app.listen(PORT, () => {
