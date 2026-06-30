@@ -1,0 +1,90 @@
+{
+    "name": "iot-trust-network",
+    "version": "1.0.0",
+    "client": {
+        "organization": "IoTOrg",
+        "connection": {
+            "timeout": {
+                "peer": {
+                    "endorser": "300"
+                },
+                "orderer": "300"
+            }
+        }
+    },
+    "channels": {
+        "iot-channel": {
+            "orderers": [
+                "orderer.iot.example.com"
+            ],
+            "peers": {
+                "peer0.iot.example.com": {
+                    "endorsingPeer": true,
+                    "chaincodeQuery": true,
+                    "ledgerQuery": true,
+                    "eventSource": true
+                }
+            }
+        }
+    },
+    "organizations": {
+        "IoTOrg": {
+            "mspid": "IoTOrgMSP",
+            "peers": [
+                "peer0.iot.example.com"
+            ],
+            "certificateAuthorities": [
+                "ca.iot.example.com"
+            ],
+            "adminPrivateKey": {
+                "path": "path/to/crypto-config/peerOrganizations/iot.example.com/users/Admin@iot.example.com/msp/keystore/priv_sk"
+            },
+            "signedCert": {
+                "path": "path/to/crypto-config/peerOrganizations/iot.example.com/users/Admin@iot.example.com/msp/signcerts/Admin@iot.example.com-cert.pem"
+            }
+        }
+    },
+    "orderers": {
+        "orderer.iot.example.com": {
+            "url": "grpcs://localhost:7050",
+            "grpcOptions": {
+                "ssl-target-name-override": "orderer.iot.example.com",
+                "grpc-max-send-message-length": -1
+            },
+            "tlsCACerts": {
+                "path": "path/to/crypto-config/ordererOrganizations/iot.example.com/orderers/orderer.iot.example.com/msp/tlscacerts/tlsca.iot.example.com-cert.pem"
+            }
+        }
+    },
+    "peers": {
+        "peer0.iot.example.com": {
+            "url": "grpcs://localhost:7051",
+            "eventUrl": "grpcs://localhost:7053",
+            "grpcOptions": {
+                "ssl-target-name-override": "peer0.iot.example.com",
+                "grpc-max-send-message-length": -1
+            },
+            "tlsCACerts": {
+                "path": "path/to/crypto-config/peerOrganizations/iot.example.com/peers/peer0.iot.example.com/msp/tlscacerts/tlsca.iot.example.com-cert.pem"
+            }
+        }
+    },
+    "certificateAuthorities": {
+        "ca.iot.example.com": {
+            "url": "https://localhost:7054",
+            "caName": "ca.iot.example.com",
+            "httpOptions": {
+                "verify": false
+            },
+            "tlsCACerts": {
+                "path": "path/to/crypto-config/peerOrganizations/iot.example.com/ca/ca.iot.example.com-cert.pem"
+            },
+            "registrar": [
+                {
+                    "enrollId": "admin",
+                    "enrollSecret": "adminpw"
+                }
+            ]
+        }
+    }
+}

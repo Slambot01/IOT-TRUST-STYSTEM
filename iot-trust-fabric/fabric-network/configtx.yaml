@@ -1,0 +1,136 @@
+# =============================================================================
+# configtx.yaml — Channel Configuration for IoT Trust Network
+# =============================================================================
+# Defines organizations, orderer settings, channel policies, and profiles.
+# Profiles:
+#   IoTGenesis  — Genesis block for the orderer system channel
+#   IoTChannel  — Channel creation transaction for iot-channel
+# =============================================================================
+
+Organizations:
+  - &IoTOrdererOrg
+    Name: IoTOrdererOrg
+    ID: IoTOrdererMSP
+    MSPDir: crypto-config/ordererOrganizations/iot.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('IoTOrdererMSP.member')"
+      Writers:
+        Type: Signature
+        Rule: "OR('IoTOrdererMSP.member')"
+      Admins:
+        Type: Signature
+        Rule: "OR('IoTOrdererMSP.admin')"
+
+  - &IoTOrg
+    Name: IoTOrg
+    ID: IoTOrgMSP
+    MSPDir: crypto-config/peerOrganizations/iot.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('IoTOrgMSP.member')"
+      Writers:
+        Type: Signature
+        Rule: "OR('IoTOrgMSP.member')"
+      Admins:
+        Type: Signature
+        Rule: "OR('IoTOrgMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('IoTOrgMSP.peer')"
+    AnchorPeers:
+      - Host: peer0.iot.example.com
+        Port: 7051
+
+Capabilities:
+  Channel: &ChannelCapabilities
+    V2_0: true
+  Orderer: &OrdererCapabilities
+    V2_0: true
+  Application: &ApplicationCapabilities
+    V2_0: true
+
+Application: &ApplicationDefaults
+  Organizations:
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "ANY Admins"
+    LifecycleEndorsement:
+      Type: ImplicitMeta
+      Rule: "ANY Endorsement"
+    Endorsement:
+      Type: ImplicitMeta
+      Rule: "ANY Endorsement"
+  Capabilities:
+    <<: *ApplicationCapabilities
+
+Orderer: &OrdererDefaults
+  OrdererType: solo
+  Addresses:
+    - orderer.iot.example.com:7050
+  BatchTimeout: 2s
+  BatchSize:
+    MaxMessageCount: 10
+    AbsoluteMaxBytes: 99 MB
+    PreferredMaxBytes: 512 KB
+  Organizations:
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "ANY Admins"
+    BlockValidation:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+
+Channel: &ChannelDefaults
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "ANY Admins"
+  Capabilities:
+    <<: *ChannelCapabilities
+
+Profiles:
+  IoTGenesis:
+    <<: *ChannelDefaults
+    Orderer:
+      <<: *OrdererDefaults
+      Organizations:
+        - *IoTOrdererOrg
+      Capabilities:
+        <<: *OrdererCapabilities
+    Consortiums:
+      IoTConsortium:
+        Organizations:
+          - *IoTOrg
+
+  IoTChannel:
+    Consortium: IoTConsortium
+    <<: *ChannelDefaults
+    Application:
+      <<: *ApplicationDefaults
+      Organizations:
+        - *IoTOrg
+      Capabilities:
+        <<: *ApplicationCapabilities
