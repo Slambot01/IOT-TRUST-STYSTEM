@@ -1,0 +1,19 @@
+{
+  "name": "fabric-benchmarks",
+  "version": "1.0.0",
+  "description": "Performance benchmarks for IoT Trust System on Hyperledger Fabric — measures TPS, latency, and block commit times",
+  "main": "load-test.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "benchmark": "node load-test.js",
+    "start": "node load-test.js"
+  },
+  "dependencies": {
+    "fabric-network": "2.2.20",
+    "fabric-ca-client": "2.2.20"
+  },
+  "author": "Member 1 — Blockchain Developer",
+  "license": "Apache-2.0"
+}

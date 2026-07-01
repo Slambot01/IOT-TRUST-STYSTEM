@@ -1,0 +1,40 @@
+# =============================================================================
+# .gitignore — IoT Trust Fabric Project
+# =============================================================================
+
+# Node.js
+node_modules/
+package-lock.json
+npm-debug.log*
+
+# Fabric generated artifacts
+fabric-network/crypto-config/
+fabric-network/channel-artifacts/
+fabric-network/bin/
+fabric-network/config/
+fabric-network/fabric-samples/
+
+# Fabric wallets (contain private keys)
+event-listener/wallet/
+benchmarks/wallet/
+
+# Benchmark results (regenerated on each run)
+benchmarks/results.json
+
+# Docker
+*.pid
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/

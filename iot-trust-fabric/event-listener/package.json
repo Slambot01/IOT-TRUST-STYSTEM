@@ -1,0 +1,21 @@
+{
+  "name": "fabric-event-listener",
+  "version": "1.0.0",
+  "description": "Fabric blockchain event listener for IoT Trust System — subscribes to chaincode events and forwards them to WebSocket clients",
+  "main": "listener.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node listener.js",
+    "dev": "node --watch listener.js"
+  },
+  "dependencies": {
+    "fabric-network": "2.2.20",
+    "fabric-ca-client": "2.2.20",
+    "ws": "8.21.0",
+    "dotenv": "16.4.7"
+  },
+  "author": "Member 1 — Blockchain Developer",
+  "license": "Apache-2.0"
+}

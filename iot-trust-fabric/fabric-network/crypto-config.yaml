@@ -1,0 +1,29 @@
+# =============================================================================
+# crypto-config.yaml — Cryptographic Material Configuration
+# =============================================================================
+# Generates crypto materials for the IoT Trust Network.
+# Organization: IoTOrg (iot.example.com)
+# Usage: cryptogen generate --config=crypto-config.yaml
+# =============================================================================
+
+OrdererOrgs:
+  - Name: IoTOrderer
+    Domain: iot.example.com
+    EnableNodeOUs: true
+    Specs:
+      - Hostname: orderer
+        SANS:
+          - localhost
+          - 127.0.0.1
+
+PeerOrgs:
+  - Name: IoTOrg
+    Domain: iot.example.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS:
+        - localhost
+        - 127.0.0.1
+    Users:
+      Count: 1
