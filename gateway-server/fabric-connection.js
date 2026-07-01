@@ -12,14 +12,17 @@ const path = require('path');
  */
 async function connectToNetwork(channelName, chaincodeName) {
     try {
-        // Assume Member 1 provides this file at '../fabric-network/connection-profile.json'
-        const ccpPath = path.resolve(__dirname, '..', 'fabric-network', 'connection-profile.json');
+        // Assume Member 1 provides this file at '../iot-trust-fabric/fabric-network/connection-profile.json'
+        const ccpPath = path.resolve(__dirname, '..', 'iot-trust-fabric', 'fabric-network', 'connection-profile.json');
         
         if (!fs.existsSync(ccpPath)) {
             throw new Error(`Connection profile not found at ${ccpPath}`);
         }
 
-        const ccp = JSON.parse(fs.readFileSync(ccpPath, 'utf8'));
+        let ccpRaw = fs.readFileSync(ccpPath, 'utf8');
+        const cryptoConfigPath = path.resolve(__dirname, '..', 'iot-trust-fabric', 'fabric-network', 'crypto-config');
+        ccpRaw = ccpRaw.replace(/path\/to\/crypto-config/g, cryptoConfigPath.replace(/\\/g, '/'));
+        const ccp = JSON.parse(ccpRaw);
 
         // Pointing to a 'wallet' folder
         const walletPath = path.join(__dirname, 'wallet');

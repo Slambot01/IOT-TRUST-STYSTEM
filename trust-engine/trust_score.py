@@ -11,6 +11,7 @@ Equation (4): T_new = max(0.0, min(1.0, T_new))
 import datetime
 from collections import defaultdict
 import requests
+import subprocess
 
 class EWMATrustScoreEngine:
     def __init__(self, alpha=0.6, beta=0.3, t_min=0.2, t_max=0.8, update_interval=30,
@@ -124,8 +125,37 @@ class EWMATrustScoreEngine:
 
     def send_to_blockchain(self, trust_record):
         """
-        Send the trust record to the blockchain API (or print locally if API offline).
+        Submits trust score immutably to Fabric blockchain via docker CLI container,
+        with a secondary/backup call to local Flask API for dashboard UI speed.
         """
+        device_id = trust_record['device_id']
+        score = trust_record['new_score']
+        successful_tx = trust_record['successful_tx']
+        failed_tx = trust_record['failed_tx']
+        is_malicious = "true" if (trust_record.get('malicious_count', 0) > 0 or trust_record.get('status') == 'BLACKLISTED') else "false"
+
+        # 1. Primary: Immutable On-Chain Transaction via Fabric CLI Container
+        cmd = [
+            "docker", "exec", "cli", "peer", "chaincode", "invoke",
+            "-o", "orderer.iot.example.com:7050",
+            "--tls", "--cafile",
+            "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/iot.example.com/orderers/orderer.iot.example.com/msp/tlscacerts/tlsca.iot.example.com-cert.pem",
+            "--peerAddresses", "peer0.iot.example.com:7051",
+            "--tlsRootCertFiles", "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/iot.example.com/peers/peer0.iot.example.com/tls/ca.crt",
+            "-C", "iot-channel", "-n", "trust-score",
+            "-c", f'{{"function":"updateTrustScore","Args":["{device_id}","{round(score,4)}","{successful_tx}","{failed_tx}","{is_malicious}"]}}'
+        ]
+        
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if result.returncode != 0:
+                print(f"[BLOCKCHAIN WRITE FAILED] {device_id}: {result.stderr.strip()}")
+            else:
+                print(f"[BLOCKCHAIN WRITE SUCCESS] {device_id}: score={score:.4f}")
+        except Exception as e:
+            print(f"[BLOCKCHAIN WRITE ERROR] {device_id}: {str(e)}")
+
+        # 2. Secondary/Backup: Local Flask API notification for dashboard speed
         try:
             response = requests.post(self.fabric_api_url + '/update', json=trust_record, timeout=3)
             response.raise_for_status()

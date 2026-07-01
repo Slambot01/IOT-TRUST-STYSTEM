@@ -36,7 +36,7 @@ async function registerDeviceDID(deviceId, publicKey, signature, verificationMet
     didDocumentStore.set(documentHash, didDocument);
 
     // Steps 5-6: Try to call Fabric chaincode function 'registerDID'
-    const fabricConnection = await connectToNetwork('mychannel', 'did-registry');
+    const fabricConnection = await connectToNetwork('iot-channel', 'did-registry');
     
     let transactionId = null;
 
@@ -45,13 +45,13 @@ async function registerDeviceDID(deviceId, publicKey, signature, verificationMet
             const { contract, gateway } = fabricConnection;
             
             // Submitting transaction to the blockchain
+            // Chaincode expects: registerDID(ctx, deviceId, publicKey, serviceEndpoint)
+            const serviceEndpointUrl = `http://localhost:3001/api/device/${deviceId}`;
             const result = await contract.submitTransaction(
                 'registerDID', 
                 deviceId, 
                 publicKey, 
-                documentHash, 
-                verificationMethod, 
-                signature
+                serviceEndpointUrl
             );
             
             transactionId = result.toString();
@@ -96,14 +96,14 @@ async function registerDeviceDID(deviceId, publicKey, signature, verificationMet
  */
 async function authenticateDevice(deviceId, challenge, signature) {
     // Steps 1-11 involves resolving the DID and verifying the signature
-    const fabricConnection = await connectToNetwork('mychannel', 'did-registry');
+    const fabricConnection = await connectToNetwork('iot-channel', 'did-registry');
     
     if (fabricConnection) {
         try {
             const { contract, gateway } = fabricConnection;
             
-            // Assuming authenticateDevice chaincode function handles resolution and verification
-            const authResultBytes = await contract.evaluateTransaction('authenticateDevice', deviceId, challenge, signature);
+            // Chaincode expects: authenticateDevice(ctx, deviceId, signature, challenge)
+            const authResultBytes = await contract.evaluateTransaction('authenticateDevice', deviceId, signature, challenge);
             const authResult = JSON.parse(authResultBytes.toString());
             
             gateway.disconnect();

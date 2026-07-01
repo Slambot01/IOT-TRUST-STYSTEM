@@ -144,3 +144,6 @@ vite.config.ts.timestamp-*
 
 venv/
 trust-engine/venv/
+__pycache__/
+*.pyc
+
