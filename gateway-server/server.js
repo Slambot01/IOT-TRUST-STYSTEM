@@ -6,8 +6,8 @@ const app = express();
 const PORT = 3001;
 
 // Middlewares
-// CORS to allow React dashboard (Member 3) on port 3000 to connect
-app.use(cors({ origin: 'http://localhost:3000' }));
+// CORS to allow React dashboard on any port (3000, 5173, etc) to connect
+app.use(cors({ origin: '*' }));
 // Parse JSON payloads
 app.use(express.json());
 

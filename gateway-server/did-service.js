@@ -56,24 +56,27 @@ async function registerDeviceDID(deviceId, publicKey, signature, verificationMet
             
             transactionId = result.toString();
             gateway.disconnect();
+            console.log(`[FABRIC MODE] Stored on blockchain: Device ${deviceId} registered.`);
         } catch (error) {
             console.error(`Fabric transaction failed: ${error.message}`);
             return { success: false, message: 'Blockchain registration failed' };
         }
     } else {
         // Fallback to SIMULATION MODE
-        localDeviceRegistry.set(deviceId, {
-            deviceId,
-            did,
-            publicKey,
-            documentHash,
-            verificationMethod,
-            signature,
-            registeredAt: new Date().toISOString()
-        });
         console.log(`[SIMULATION MODE] Stored locally: Device ${deviceId} registered.`);
         transactionId = 'sim-tx-' + Date.now();
     }
+
+    // Always keep a local cache so /api/devices works without needing a complex chaincode query
+    localDeviceRegistry.set(deviceId, {
+        deviceId,
+        did,
+        publicKey,
+        documentHash,
+        verificationMethod,
+        signature,
+        registeredAt: new Date().toISOString()
+    });
 
     // Step 7: Return response to Gateway/Device
     return {
@@ -180,10 +183,19 @@ async function getAllDevices() {
 async function getDevice(deviceId) {
     const device = localDeviceRegistry.get(deviceId);
     if (!device) return null;
+    
+    // Fetch the actual simulated DID document from the hash
+    const didDocument = getDIDDocument(device.documentHash);
+    
     return {
         deviceId: device.deviceId,
         did: device.did,
-        registeredAt: device.registeredAt
+        publicKey: device.publicKey,
+        signature: device.signature,
+        documentHash: device.documentHash,
+        verificationMethod: device.verificationMethod,
+        registeredAt: device.registeredAt,
+        didDocument: didDocument
     };
 }
 

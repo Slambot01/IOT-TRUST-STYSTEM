@@ -13,8 +13,8 @@ from trust_score import EWMATrustScoreEngine
 from behavioral_monitor import generate_normal_device_behavior, generate_attack_behavior
 
 app = Flask(__name__)
-# Enable CORS for Member 3's dashboard (React typically runs on port 3000)
-CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
+# Enable CORS for Member 3's dashboard on any port
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # Global Engine instance shared across all requests
 engine = EWMATrustScoreEngine(alpha=0.6, beta=0.3, t_min=0.2, t_max=0.8, update_interval=30)

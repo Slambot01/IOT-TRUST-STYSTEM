@@ -49,6 +49,7 @@ class AttackSimulator:
                 self.engine.record_transaction(device_id, success=False, is_malicious=True)
                 
             record = self.engine.compute_trust_score(device_id)
+            self.engine.send_to_blockchain(record)
             scores.append(record['new_score'])
             
             if record['new_score'] < self.engine.t_min and detection_cycle is None:
@@ -77,6 +78,7 @@ class AttackSimulator:
                 self.engine.record_transaction(device_id, success=False, is_malicious=True)
                 
             record = self.engine.compute_trust_score(device_id)
+            self.engine.send_to_blockchain(record)
             scores.append(record['new_score'])
             
             if record['new_score'] < self.engine.t_min and detection_cycle is None:
@@ -102,6 +104,7 @@ class AttackSimulator:
                 self.engine.record_transaction(device_id, success=False, is_malicious=True)
                 
             record = self.engine.compute_trust_score(device_id)
+            self.engine.send_to_blockchain(record)
             scores.append(record['new_score'])
             
             if record['new_score'] < self.engine.t_min and detection_cycle is None:
@@ -125,10 +128,16 @@ class AttackSimulator:
             
             for i in range(num_devices_per_attack):
                 device_id = f'{attack_name}_test_{i:02d}'
+                print(f"\n[ATTACK START] Target: {device_id} | Type: {attack_name.upper()}")
                 self.establish_baseline(device_id)
                 # Need enough cycles to ensure detection. Replay is hard, so we use duration_cycles=15.
                 scores, d_cycle, d_time = attack_func(device_id, duration_cycles=15)
                 
+                for c, s in enumerate(scores):
+                    print(f"  Cycle {c+1}: Trust Score = {s:.4f}")
+                    if d_cycle and c + 1 == d_cycle:
+                        print(f"  >>> BLACKLIST THRESHOLD (0.2) CROSSED AT CYCLE {d_cycle} <<<")
+
                 if d_time is not None:
                     detection_times.append(d_time)
                     detection_cycles.append(d_cycle)
