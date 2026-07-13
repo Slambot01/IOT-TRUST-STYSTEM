@@ -15,10 +15,10 @@ export function getStatusBgColor(score) {
 }
 
 export function getStatusLabel(score) {
-  if (score >= 80) return 'HIGHLY TRUSTED';
-  if (score >= 50) return 'TRUSTED';
-  if (score >= 20) return 'LOW TRUST';
-  return 'BLACKLISTED';
+  if (score >= 80) return 'FULL_ACCESS';
+  if (score >= 50) return 'RESTRICTED';
+  if (score >= 20) return 'QUARANTINED';
+  return 'REVOKED';
 }
 
 function TrustScores({ score }) {

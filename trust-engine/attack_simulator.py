@@ -222,7 +222,9 @@ class AttackSimulator:
                 
             # --- ATTACK PHASE (up to 10 cycles) ---
             for cycle in range(1, max_attack_cycles + 1):
-                # Slow Poison generation
+                # Slow Poison generation — the KEY insight:
+                # The attacker keeps success/fail ratio NORMAL so Phase 1 can't detect.
+                # But the behavioral PARAMETERS (endpoints, payload, rate) drift.
                 drift_factor = min(cycle, 8)
                 request_rate = random.randint(8, 12) + (drift_factor * 2)
                 known_endpoints = ["/api/data/0", "/api/data/1"]
@@ -231,12 +233,14 @@ class AttackSimulator:
                 payload_size = random.randint(180, 220) + (drift_factor * 50)
                 error_count = random.randint(0, 1) + (drift_factor * 1)
                 
-                # Phase 1 Evaluation
-                successful_tx = max(0, request_rate - error_count)
-                for _ in range(successful_tx):
-                    engine_p1.record_transaction(device_id, success=True, is_malicious=True)
-                for _ in range(error_count):
-                    engine_p1.record_transaction(device_id, success=False, is_malicious=True)
+                # Phase 1 Evaluation — attacker keeps transactions looking CLEAN
+                # Normal success/fail ratio, NOT flagged as malicious
+                p1_successful = random.randint(8, 12)
+                p1_failed = random.randint(0, 1)
+                for _ in range(p1_successful):
+                    engine_p1.record_transaction(device_id, success=True, is_malicious=False)
+                for _ in range(p1_failed):
+                    engine_p1.record_transaction(device_id, success=False, is_malicious=False)
                 
                 p1_record = engine_p1.compute_trust_score(device_id)
                 p1_score = p1_record['new_score']
@@ -244,7 +248,7 @@ class AttackSimulator:
                 if p1_score < engine_p1.t_min and p1_detection is None:
                     p1_detection = cycle
                     
-                # Phase 2 Evaluation
+                # Phase 2 Evaluation — sees the REAL drifting parameters
                 p2_score = engine_p2.process_behavior(
                     device_id,
                     actual_rate=request_rate,

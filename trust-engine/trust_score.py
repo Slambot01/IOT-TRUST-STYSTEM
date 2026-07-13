@@ -146,22 +146,35 @@ class EWMATrustScoreEngine:
             "-c", f'{{"function":"updateTrustScore","Args":["{device_id}","{round(score,4)}","{successful_tx}","{failed_tx}","{is_malicious}"]}}'
         ]
         
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-            if result.returncode != 0:
-                print(f"[BLOCKCHAIN WRITE FAILED] {device_id}: {result.stderr.strip()}")
-            else:
-                print(f"[BLOCKCHAIN WRITE SUCCESS] {device_id}: score={score:.4f}")
-        except Exception as e:
-            print(f"[BLOCKCHAIN WRITE ERROR] {device_id}: {str(e)}")
+        # Skip blockchain writes if Docker/Fabric containers are unavailable
+        if not hasattr(self, '_docker_available'):
+            try:
+                check = subprocess.run(["docker", "inspect", "--format", "{{.State.Running}}", "cli"],
+                                       capture_output=True, text=True, timeout=2)
+                self._docker_available = (check.returncode == 0 and "true" in check.stdout.lower())
+                if not self._docker_available:
+                    print("[BLOCKCHAIN] Fabric 'cli' container not running — skipping on-chain writes (simulation mode)")
+            except Exception:
+                self._docker_available = False
+                print("[BLOCKCHAIN] Docker not found — skipping on-chain writes (simulation mode)")
+        
+        if self._docker_available:
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=1)
+                if result.returncode != 0:
+                    print(f"[BLOCKCHAIN WRITE FAILED] {device_id}: {result.stderr.strip()}")
+                else:
+                    print(f"[BLOCKCHAIN WRITE SUCCESS] {device_id}: score={score:.4f}")
+            except Exception as e:
+                print(f"[BLOCKCHAIN WRITE ERROR] {device_id}: {str(e)}")
 
-        # 2. Secondary/Backup: Local Flask API notification for dashboard speed
-        try:
-            response = requests.post(self.fabric_api_url + '/update', json=trust_record, timeout=3)
-            response.raise_for_status()
-        except requests.exceptions.RequestException:
-            # Fallback for when API is not running
-            pass
+        # 2. Secondary/Backup: Local Flask API notification (disabled — background
+        #    thread updates engine state directly, no HTTP round-trip needed)
+        # try:
+        #     response = requests.post(self.fabric_api_url + '/update', json=trust_record, timeout=0.5)
+        #     response.raise_for_status()
+        # except requests.exceptions.RequestException:
+        #     pass
 
     def run_update_cycle(self, device_ids):
         """

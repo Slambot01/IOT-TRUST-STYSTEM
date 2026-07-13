@@ -1,8 +1,3 @@
-/**
- * IoT Trust System Dashboard
- * Paper 1 (Zaghdoudi): Registered devices + DID status
- * Paper 2 (Al-Zaidi): Live trust scores, updated every 3s
- */
 import React, { useState, useEffect } from 'react';
 import DeviceList from './components/DeviceList';
 
@@ -11,46 +6,62 @@ const TRUST_API_URL = 'http://localhost:3002/api';
 
 function App() {
   const [devices, setDevices] = useState([]);
-  const [trustScores, setTrust] = useState({});
+  const [trustData, setTrustData] = useState({});
+  const [comparisonData, setComparisonData] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
 
   useEffect(() => {
     fetchData();
+    fetchComparisonData();
     const id = setInterval(fetchData, 3000);
     return () => clearInterval(id);
   }, []);
 
+  async function fetchComparisonData() {
+    try {
+      const res = await fetch(`${TRUST_API_URL}/trust/v2/comparison`);
+      if (res.ok) {
+        const data = await res.json();
+        setComparisonData(data);
+      }
+    } catch {
+      console.log('Comparison API offline');
+    }
+  }
+
   async function fetchData() {
     try {
       const devRes = await fetch(`${GATEWAY_URL}/devices`);
-      const devData = await devRes.json();
-      setDevices(devData.devices || []);
+      if (devRes.ok) {
+        const devData = await devRes.json();
+        setDevices(devData.devices || []);
+      }
     } catch {
       console.log('Gateway offline');
     }
     try {
-      const trustRes = await fetch(`${TRUST_API_URL}/trust/all`);
-      const trustData = await trustRes.json();
-      const scoreMap = {};
-      trustData.forEach(item => {
-        scoreMap[item.deviceId] = Math.round(item.score * 100);
-      });
-      setTrust(scoreMap);
-      setLastUpdate(new Date().toLocaleTimeString());
+      const trustRes = await fetch(`${TRUST_API_URL}/trust/v2/all`);
+      if (trustRes.ok) {
+        const tData = await trustRes.json();
+        const scoreMap = {};
+        tData.forEach(item => {
+          scoreMap[item.deviceId] = item;
+        });
+        setTrustData(scoreMap);
+        setLastUpdate(new Date().toLocaleTimeString());
+      }
     } catch {
       console.log('Trust API offline');
     }
   }
 
+  const trustValues = Object.values(trustData);
+  const totalDevices = trustValues.length || devices.length;
   const statCards = [
-    { label: 'Total Devices', value: devices.length, color: '#2563EB' }, // Primary blue
-    { label: 'Registered DIDs', value: devices.length, color: '#16A34A' }, // Success green
-    { label: 'Highly Trusted', 
-      value: Object.values(trustScores).filter(s => s >= 80).length, 
-      color: '#16A34A' },
-    { label: 'Blacklisted', 
-      value: Object.values(trustScores).filter(s => s < 20).length, 
-      color: '#DC2626' } // Danger red
+    { label: 'Total Devices', value: totalDevices, color: '#2563EB' },
+    { label: 'Full Access', value: trustValues.filter(d => d.tier === 'FULL_ACCESS').length, color: '#16A34A' },
+    { label: 'Quarantined', value: trustValues.filter(d => d.tier === 'QUARANTINED').length, color: '#EA580C' },
+    { label: 'Revoked', value: trustValues.filter(d => d.tier === 'REVOKED').length, color: '#DC2626' }
   ];
 
   return (
@@ -67,7 +78,7 @@ function App() {
             IoT Trust System Dashboard
           </h1>
           <p style={{ color: '#6B7280', margin: '0 0 12px 0', fontSize: '15px' }}>
-            Zaghdoudi 2025 (DID) + Al-Zaidi 2026 (EWMA Trust)
+            Phase 2: Multi-Parametric Behavioral Trust (Al-Zaidi 2026 Extension)
           </p>
           <div style={{ 
             color: '#9CA3AF', 
@@ -77,10 +88,6 @@ function App() {
             gap: '8px'
           }}>
             <span>Last update: {lastUpdate}</span>
-            <span>|</span>
-            <span style={{ fontFamily: 'monospace', background: '#E5E7EB', padding: '2px 6px', borderRadius: '4px', fontSize: '12px', color: '#6B7280' }}>
-              T = a*T_prev + (1-a)*(S/(S+F+1)) - P
-            </span>
           </div>
         </div>
 
@@ -105,7 +112,46 @@ function App() {
           ))}
         </div>
 
-        <DeviceList devices={devices} trustScores={trustScores} />
+        {comparisonData && (
+          <div style={{ background: '#FFFFFF', padding: '24px', borderRadius: '10px', border: '1px solid #E5E7EB', marginBottom: '40px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', marginTop: 0, marginBottom: '8px' }}>
+              Phase 1 vs Phase 2 Detection Comparison (Slow Poison Attack)
+            </h2>
+            <p style={{ fontSize: '14px', color: '#6B7280', marginBottom: '16px', lineHeight: '1.5' }}>
+              <strong>Phase 1 Avg Detection:</strong> {typeof comparisonData.summary.p1_avg_detection_cycle === 'number' ? comparisonData.summary.p1_avg_detection_cycle.toFixed(1) + ' cycles' : 'N/A (never detected)'} | <strong>Fails:</strong> {comparisonData.summary.p1_fails}/{comparisonData.summary.total_devices}
+              <br/>
+              <strong>Phase 2 Avg Detection:</strong> {typeof comparisonData.summary.p2_avg_detection_cycle === 'number' ? comparisonData.summary.p2_avg_detection_cycle.toFixed(1) + ' cycles' : 'N/A (never detected)'} | <strong>Fails:</strong> {comparisonData.summary.p2_fails}/{comparisonData.summary.total_devices}
+            </p>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E5E7EB', textAlign: 'left', fontSize: '12px', color: '#6B7280' }}>
+                  <th style={{ padding: '8px 12px' }}>Device ID</th>
+                  <th style={{ padding: '8px 12px' }}>P1 Detection Cycle</th>
+                  <th style={{ padding: '8px 12px' }}>P2 Detection Cycle</th>
+                  <th style={{ padding: '8px 12px' }}>P1 Final Score</th>
+                  <th style={{ padding: '8px 12px' }}>P2 Final Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comparisonData.devices.map(d => (
+                  <tr key={d.device_id} style={{ borderBottom: '1px solid #E5E7EB', fontSize: '13px' }}>
+                    <td style={{ padding: '8px 12px', fontWeight: '500' }}>{d.device_id}</td>
+                    <td style={{ padding: '8px 12px', color: d.p1_detection ? '#16A34A' : '#DC2626', fontWeight: '600' }}>
+                      {d.p1_detection || 'Failed'}
+                    </td>
+                    <td style={{ padding: '8px 12px', color: d.p2_detection ? '#16A34A' : '#DC2626', fontWeight: '600' }}>
+                      {d.p2_detection || 'Failed'}
+                    </td>
+                    <td style={{ padding: '8px 12px' }}>{(d.p1_final_score * 100).toFixed(1)}%</td>
+                    <td style={{ padding: '8px 12px' }}>{d.p2_final_score.toFixed(1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <DeviceList devices={devices} trustData={trustData} />
       </div>
     </div>
   );

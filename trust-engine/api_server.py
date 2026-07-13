@@ -203,11 +203,83 @@ def get_v2_devices_by_tier(tier_name):
 
 @app.route('/api/trust/v2/comparison', methods=['GET'])
 def get_v2_comparison():
-    dummy_engine = EWMATrustScoreEngine(alpha=0.6, beta=0.3, t_min=0.2, t_max=0.8, update_interval=30)
-    sim = AttackSimulator(dummy_engine)
-    
-    comparison_data = sim.compare_detection_systems(num_devices=10)
-    return jsonify(comparison_data), 200
+    try:
+        import random as _rnd
+        from behavioral_parameters import BehavioralParameterEngine
+        
+        ep1 = EWMATrustScoreEngine(alpha=0.6, beta=0.3, t_min=0.2, t_max=0.8, update_interval=30)
+        ep2 = BehavioralParameterEngine(w1=0.35, w2=0.30, w3=0.20, w4=0.15, alpha=0.6, learning_threshold=3)
+        
+        results = []
+        num_devices = 10
+        
+        for i in range(num_devices):
+            dev = f"slow_poison_test_{i:02d}"
+            p1_det = None
+            p2_det = None
+            p1_score = 1.0
+            p2_score = 100.0
+            
+            # Learning phase (3 cycles) — normal behavior for both
+            for _ in range(3):
+                rate = _rnd.randint(8, 12)
+                errs = _rnd.randint(0, 1)
+                good = max(0, rate - errs)
+                for _ in range(good):
+                    ep1.record_transaction(dev, success=True, is_malicious=False)
+                for _ in range(errs):
+                    ep1.record_transaction(dev, success=False, is_malicious=False)
+                ep1.compute_trust_score(dev)
+                ep2.process_behavior(dev, actual_rate=rate, actual_size=_rnd.randint(180,220),
+                    endpoints=["/api/data/0", "/api/data/1"], error_count=errs, total_requests=rate)
+            
+            # Attack phase (10 cycles)
+            for cyc in range(1, 11):
+                drift = min(cyc, 8)
+                
+                # Phase 1 sees NORMAL transactions (attacker hides)
+                p1_good = _rnd.randint(8, 12)
+                p1_bad = _rnd.randint(0, 1)
+                for _ in range(p1_good):
+                    ep1.record_transaction(dev, success=True, is_malicious=False)
+                for _ in range(p1_bad):
+                    ep1.record_transaction(dev, success=False, is_malicious=False)
+                rec = ep1.compute_trust_score(dev)
+                p1_score = rec['new_score']
+                if p1_score < ep1.t_min and p1_det is None:
+                    p1_det = cyc
+                
+                # Phase 2 sees DRIFTING behavioral parameters
+                atk_rate = _rnd.randint(8, 12) + (drift * 2)
+                atk_size = _rnd.randint(180, 220) + (drift * 50)
+                atk_errs = _rnd.randint(0, 1) + drift
+                atk_eps = ["/api/data/0", "/api/data/1"] + [f"/api/poison/{j}" for j in range(drift)]
+                p2_score = ep2.process_behavior(dev, actual_rate=atk_rate, actual_size=atk_size,
+                    endpoints=atk_eps, error_count=atk_errs, total_requests=atk_rate)
+                if p2_score < 20.0 and p2_det is None:
+                    p2_det = cyc
+            
+            results.append({
+                "device_id": dev, "p1_detection": p1_det, "p2_detection": p2_det,
+                "p1_final_score": p1_score, "p2_final_score": p2_score
+            })
+        
+        p1_dets = [r['p1_detection'] for r in results if r['p1_detection'] is not None]
+        p2_dets = [r['p2_detection'] for r in results if r['p2_detection'] is not None]
+        
+        summary = {
+            "p1_avg_detection_cycle": round(sum(p1_dets)/len(p1_dets), 1) if p1_dets else "N/A",
+            "p2_avg_detection_cycle": round(sum(p2_dets)/len(p2_dets), 1) if p2_dets else "N/A",
+            "p1_fails": num_devices - len(p1_dets),
+            "p2_fails": num_devices - len(p2_dets),
+            "total_devices": num_devices
+        }
+        
+        return jsonify({"devices": results, "summary": summary}), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/health', methods=['GET'])
 def health_check():

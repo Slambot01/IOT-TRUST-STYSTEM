@@ -63,7 +63,7 @@
         "method": "POST",
         "ret": "obj",
         "paytoqs": "ignore",
-        "url": "http://localhost:3002/api/trust/update",
+        "url": "http://127.0.0.1:3002/api/trust/update",
         "tls": "",
         "persist": false,
         "proxy": "",
