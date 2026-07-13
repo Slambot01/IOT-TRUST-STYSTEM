@@ -357,6 +357,360 @@ class TrustScore extends Contract {
         console.log(`[TrustScore] getAllTrustScores returned ${allResults.length} record(s).`);
         return JSON.stringify(allResults);
     }
+
+    // =========================================================================
+    // PHASE 2: 4-Tier Access Control Functions
+    // =========================================================================
+    //
+    // Tier Model:
+    //   FULL_ACCESS     — score >= 0.8   (unrestricted operations)
+    //   LIMITED_ACCESS   — score >= 0.5   (standard operations, no admin)
+    //   QUARANTINE       — score >= 0.2   (read-only, under review)
+    //   REVOKED          — score <  0.2   (all access denied)
+    //
+    // Composite Score Formula:
+    //   score = 0.30 * dataIntegrity
+    //         + 0.25 * networkReliability
+    //         + 0.25 * behaviorCompliance
+    //         + 0.20 * authenticationStrength
+    // =========================================================================
+
+    /**
+     * Determines the access tier for a given trust score.
+     *
+     * This is an internal helper function (not exposed as a chaincode
+     * transaction). It maps a numeric score to one of four tier strings.
+     *
+     * @param {number} score - Trust score in [0, 1]
+     * @returns {string} One of: FULL_ACCESS, LIMITED_ACCESS, QUARANTINE, REVOKED
+     */
+    determineAccessTier(score) {
+        if (score >= 0.8) return 'FULL_ACCESS';
+        if (score >= 0.5) return 'LIMITED_ACCESS';
+        if (score >= 0.2) return 'QUARANTINE';
+        return 'REVOKED';
+    }
+
+    /**
+     * Updates the trust score for an IoT device using the Phase 2 weighted
+     * composite scoring model with four distinct trust parameters.
+     *
+     * Each parameter is a float in [0, 1] representing a dimension of trust:
+     *   - dataIntegrity        (weight 0.30) — data accuracy and freshness
+     *   - networkReliability   (weight 0.25) — uptime and connectivity
+     *   - behaviorCompliance   (weight 0.25) — adherence to expected patterns
+     *   - authenticationStrength (weight 0.20) — credential strength
+     *
+     * The composite score is clamped to [0, 1], and the device is classified
+     * into one of four access tiers. History and versioning follow the same
+     * conventions as the Phase 1 updateTrustScore function.
+     *
+     * Events Emitted:
+     *   - TrustScoreUpdated   — on every update
+     *   - AccessTierChanged   — when the tier differs from the previous value
+     *   - DeviceRevoked       — when the new tier is REVOKED
+     *
+     * @async
+     * @param {Context} ctx - The transaction context
+     * @param {string} deviceId - The device identifier
+     * @param {string} dataIntegrity - Data integrity score (0–1)
+     * @param {string} networkReliability - Network reliability score (0–1)
+     * @param {string} behaviorCompliance - Behavior compliance score (0–1)
+     * @param {string} authenticationStrength - Authentication strength score (0–1)
+     * @returns {string} JSON string of the updated trust record
+     * @throws {Error} If deviceId is empty or any parameter is invalid
+     */
+    async updateTrustScoreV2(ctx, deviceId, dataIntegrity, networkReliability, behaviorCompliance, authenticationStrength) {
+        // --- Input Validation ---
+        if (!deviceId || deviceId.trim().length === 0) {
+            throw new Error('deviceId is required and cannot be empty');
+        }
+
+        const params = {
+            dataIntegrity: parseFloat(dataIntegrity),
+            networkReliability: parseFloat(networkReliability),
+            behaviorCompliance: parseFloat(behaviorCompliance),
+            authenticationStrength: parseFloat(authenticationStrength)
+        };
+
+        for (const [name, value] of Object.entries(params)) {
+            if (isNaN(value)) {
+                throw new Error(`Invalid ${name} value: '${arguments[Object.keys(params).indexOf(name) + 1]}'. Must be a number between 0 and 1.`);
+            }
+            params[name] = Math.max(0, Math.min(1, value)); // Clamp to [0, 1]
+        }
+
+        const clientIdentity = ctx.clientIdentity;
+        console.log(`[TrustScore] updateTrustScoreV2 invoked by: ${clientIdentity.getID()}`);
+
+        // --- Weighted Composite Score ---
+        const weights = {
+            dataIntegrity: 0.30,
+            networkReliability: 0.25,
+            behaviorCompliance: 0.25,
+            authenticationStrength: 0.20
+        };
+
+        const compositeScore = Math.max(0, Math.min(1,
+            weights.dataIntegrity * params.dataIntegrity +
+            weights.networkReliability * params.networkReliability +
+            weights.behaviorCompliance * params.behaviorCompliance +
+            weights.authenticationStrength * params.authenticationStrength
+        ));
+
+        // --- Tier Classification ---
+        const tier = this.determineAccessTier(compositeScore);
+
+        // Map tier to Phase 1 status for backward compatibility
+        let status;
+        if (tier === 'REVOKED') {
+            status = 'BLACKLISTED';
+        } else if (tier === 'FULL_ACCESS') {
+            status = 'HIGHLY_TRUSTED';
+        } else {
+            status = 'TRUSTED';
+        }
+
+        const trustKey = `TRUST:${deviceId}`;
+        const historyKey = `HISTORY:${deviceId}`;
+        const now = new Date().toISOString();
+
+        // Get existing record for version increment and tier-change detection
+        let version = 1;
+        let previousTier = null;
+        const existingBytes = await ctx.stub.getState(trustKey);
+        if (existingBytes && existingBytes.length > 0) {
+            const existingRecord = JSON.parse(existingBytes.toString());
+            version = (existingRecord.version || 0) + 1;
+            previousTier = existingRecord.tier || null;
+        }
+
+        // Build the trust record (superset of Phase 1 fields)
+        const trustRecord = {
+            deviceId: deviceId,
+            score: compositeScore,
+            status: status,
+            tier: tier,
+            dataIntegrity: params.dataIntegrity,
+            networkReliability: params.networkReliability,
+            behaviorCompliance: params.behaviorCompliance,
+            authenticationStrength: params.authenticationStrength,
+            weights: weights,
+            successCount: 0,
+            failureCount: 0,
+            isMalicious: tier === 'REVOKED',
+            updatedAt: now,
+            version: version
+        };
+
+        // Save current trust score to ledger
+        await ctx.stub.putState(trustKey, Buffer.from(JSON.stringify(trustRecord)));
+
+        // --- History Management ---
+        let history = [];
+        const historyBytes = await ctx.stub.getState(historyKey);
+        if (historyBytes && historyBytes.length > 0) {
+            try {
+                history = JSON.parse(historyBytes.toString());
+            } catch (parseError) {
+                console.log(`[TrustScore] Error parsing history for ${deviceId}, resetting: ${parseError.message}`);
+                history = [];
+            }
+        }
+
+        const historyEntry = {
+            score: compositeScore,
+            status: status,
+            tier: tier,
+            dataIntegrity: params.dataIntegrity,
+            networkReliability: params.networkReliability,
+            behaviorCompliance: params.behaviorCompliance,
+            authenticationStrength: params.authenticationStrength,
+            timestamp: now,
+            version: version
+        };
+
+        history.push(historyEntry);
+
+        // Keep only the last 100 entries
+        if (history.length > 100) {
+            history = history.slice(history.length - 100);
+        }
+
+        await ctx.stub.putState(historyKey, Buffer.from(JSON.stringify(history)));
+
+        // --- Event Emission ---
+        // Always emit TrustScoreUpdated (backward compatible with Phase 1 listeners)
+        const eventPayload = {
+            deviceId: deviceId,
+            score: compositeScore,
+            status: status,
+            tier: tier,
+            timestamp: now
+        };
+        ctx.stub.setEvent('TrustScoreUpdated', Buffer.from(JSON.stringify(eventPayload)));
+
+        // Emit AccessTierChanged when the tier differs from previous
+        if (previousTier !== null && previousTier !== tier) {
+            const tierChangePayload = {
+                deviceId: deviceId,
+                previousTier: previousTier,
+                newTier: tier,
+                score: compositeScore,
+                timestamp: now
+            };
+            ctx.stub.setEvent('AccessTierChanged', Buffer.from(JSON.stringify(tierChangePayload)));
+            console.log(`[TrustScore] TIER CHANGE: Device ${deviceId} moved from ${previousTier} to ${tier}`);
+        }
+
+        // Emit DeviceRevoked when tier is REVOKED
+        if (tier === 'REVOKED') {
+            const revokedPayload = {
+                deviceId: deviceId,
+                score: compositeScore,
+                reason: 'Composite trust score below revocation threshold (0.2)',
+                dataIntegrity: params.dataIntegrity,
+                networkReliability: params.networkReliability,
+                behaviorCompliance: params.behaviorCompliance,
+                authenticationStrength: params.authenticationStrength,
+                timestamp: now
+            };
+            ctx.stub.setEvent('DeviceRevoked', Buffer.from(JSON.stringify(revokedPayload)));
+            console.log(`[TrustScore] REVOKED: Device ${deviceId} access revoked (score: ${compositeScore.toFixed(4)})`);
+        }
+
+        console.log(`[TrustScore] V2 trust score updated for ${deviceId}: score=${compositeScore.toFixed(4)}, tier=${tier}, version=${version}`);
+        return JSON.stringify(trustRecord);
+    }
+
+    /**
+     * Checks whether a device is permitted to perform actions based on its
+     * current trust score and access tier.
+     *
+     * REVOKED devices return allowed=false. All other tiers return allowed=true
+     * with the tier indicating what level of access is appropriate.
+     *
+     * @async
+     * @param {Context} ctx - The transaction context
+     * @param {string} deviceId - The device identifier
+     * @returns {string} JSON string: { allowed, tier, reason, score, deviceId }
+     * @throws {Error} If deviceId is empty
+     */
+    async checkAccessPermission(ctx, deviceId) {
+        // --- Input Validation ---
+        if (!deviceId || deviceId.trim().length === 0) {
+            throw new Error('deviceId is required and cannot be empty');
+        }
+
+        const clientIdentity = ctx.clientIdentity;
+        console.log(`[TrustScore] checkAccessPermission invoked by: ${clientIdentity.getID()}`);
+
+        const trustKey = `TRUST:${deviceId}`;
+        const dataBytes = await ctx.stub.getState(trustKey);
+
+        if (!dataBytes || dataBytes.length === 0) {
+            // Device has no trust record — deny by default (unscored device)
+            return JSON.stringify({
+                deviceId: deviceId,
+                allowed: false,
+                tier: 'UNKNOWN',
+                score: null,
+                reason: 'No trust record found. Device must be scored before accessing resources.'
+            });
+        }
+
+        const record = JSON.parse(dataBytes.toString());
+        const score = record.score;
+
+        // Use stored tier if available (Phase 2 record), otherwise compute it
+        const tier = record.tier || this.determineAccessTier(score);
+
+        let allowed = true;
+        let reason = '';
+
+        if (tier === 'REVOKED') {
+            allowed = false;
+            reason = `Device access revoked. Trust score ${score.toFixed(4)} is below the revocation threshold (0.2).`;
+        } else if (tier === 'QUARANTINE') {
+            allowed = true;
+            reason = `Device is in quarantine. Limited read-only access permitted. Trust score: ${score.toFixed(4)}.`;
+        } else if (tier === 'LIMITED_ACCESS') {
+            allowed = true;
+            reason = `Standard access granted. Trust score: ${score.toFixed(4)}.`;
+        } else {
+            // FULL_ACCESS
+            allowed = true;
+            reason = `Full access granted. Trust score: ${score.toFixed(4)}.`;
+        }
+
+        console.log(`[TrustScore] checkAccessPermission for ${deviceId}: allowed=${allowed}, tier=${tier}, score=${score}`);
+
+        return JSON.stringify({
+            deviceId: deviceId,
+            allowed: allowed,
+            tier: tier,
+            score: score,
+            reason: reason
+        });
+    }
+
+    /**
+     * Retrieves all devices belonging to a specific access tier using a
+     * CouchDB rich query.
+     *
+     * Valid tier values: FULL_ACCESS, LIMITED_ACCESS, QUARANTINE, REVOKED
+     *
+     * Note: For Phase 1 records that lack a `tier` field, this function will
+     * only find devices that have been scored with updateTrustScoreV2. Use
+     * getBlacklistedDevices for Phase 1 BLACKLISTED lookups.
+     *
+     * @async
+     * @param {Context} ctx - The transaction context
+     * @param {string} tier - The access tier to query for
+     * @returns {string} JSON string of an array of matching device records
+     * @throws {Error} If tier is empty or invalid
+     */
+    async getDevicesByTier(ctx, tier) {
+        // --- Input Validation ---
+        if (!tier || tier.trim().length === 0) {
+            throw new Error('tier is required and cannot be empty');
+        }
+
+        const validTiers = ['FULL_ACCESS', 'LIMITED_ACCESS', 'QUARANTINE', 'REVOKED'];
+        if (!validTiers.includes(tier)) {
+            throw new Error(`Invalid tier: '${tier}'. Must be one of: ${validTiers.join(', ')}`);
+        }
+
+        const clientIdentity = ctx.clientIdentity;
+        console.log(`[TrustScore] getDevicesByTier invoked by: ${clientIdentity.getID()} for tier: ${tier}`);
+
+        const queryString = JSON.stringify({
+            selector: {
+                tier: tier
+            }
+        });
+
+        const allResults = [];
+        const iterator = await ctx.stub.getQueryResult(queryString);
+
+        let result = await iterator.next();
+        while (!result.done) {
+            const record = result.value;
+            if (record && record.value && record.value.toString().length > 0) {
+                try {
+                    const jsonRecord = JSON.parse(record.value.toString('utf8'));
+                    allResults.push(jsonRecord);
+                } catch (parseError) {
+                    console.log(`[TrustScore] Error parsing tier query record: ${parseError.message}`);
+                }
+            }
+            result = await iterator.next();
+        }
+        await iterator.close();
+
+        console.log(`[TrustScore] getDevicesByTier(${tier}) returned ${allResults.length} device(s).`);
+        return JSON.stringify(allResults);
+    }
 }
 
 module.exports.contracts = [TrustScore];

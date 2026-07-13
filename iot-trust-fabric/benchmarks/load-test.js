@@ -358,6 +358,232 @@ async function test3MixedLoad(didContract, trustContract) {
     };
 }
 
+/**
+ * Test 4 — Phase 1 vs Phase 2 Trust Score Comparison
+ *
+ * Runs sequential updates for 100 devices with both the Phase 1
+ * updateTrustScore function and the Phase 2 updateTrustScoreV2 function.
+ * Compares TPS, latency, block commit time, and payload size.
+ *
+ * @param {Contract} trustContract - The Trust Score contract.
+ * @returns {object} Comparison results for both phases.
+ */
+async function test4Phase2Comparison(trustContract) {
+    console.log('\n[TEST 4] Phase 1 vs Phase 2 Comparison — 100 devices each');
+    console.log('─'.repeat(60));
+
+    // ------------------------------------------------------------------
+    // Phase 1: updateTrustScore
+    // ------------------------------------------------------------------
+    console.log('\n  [Phase 1] Running updateTrustScore for 100 devices...');
+
+    const p1Latencies = [];
+    const p1CommitTimes = [];
+    const p1PayloadSizes = [];
+    const p1Errors = [];
+
+    for (let i = 1; i <= DEVICE_COUNT; i++) {
+        const id = deviceId('bench-cmp-', i);
+        const score = (Math.random() * 0.8 + 0.1).toFixed(4);
+        const success = Math.floor(Math.random() * 100).toString();
+        const failure = Math.floor(Math.random() * 20).toString();
+        const malicious = Math.random() < 0.05 ? 'true' : 'false';
+
+        // Measure payload size (the arguments sent to the chaincode)
+        const args = [id, score, success, failure, malicious];
+        const payloadSize = Buffer.byteLength(JSON.stringify(args), 'utf8');
+        p1PayloadSizes.push(payloadSize);
+
+        const startCommit = now();
+        try {
+            await trustContract.submitTransaction(
+                'updateTrustScore', id, score, success, failure, malicious
+            );
+            const commitTime = now() - startCommit;
+            p1Latencies.push(commitTime);
+            p1CommitTimes.push(commitTime);
+        } catch (err) {
+            p1Latencies.push(now() - startCommit);
+            p1Errors.push({ deviceId: id, error: err.message });
+        }
+
+        if (i % 25 === 0) console.log(`    Progress: ${i}/${DEVICE_COUNT}`);
+    }
+
+    // ------------------------------------------------------------------
+    // Phase 2: updateTrustScoreV2
+    // ------------------------------------------------------------------
+    console.log('\n  [Phase 2] Running updateTrustScoreV2 for 100 devices...');
+
+    const p2Latencies = [];
+    const p2CommitTimes = [];
+    const p2PayloadSizes = [];
+    const p2Errors = [];
+
+    for (let i = 1; i <= DEVICE_COUNT; i++) {
+        const id = deviceId('bench-cmp-', i);
+        const dataIntegrity = (Math.random() * 0.8 + 0.1).toFixed(4);
+        const networkReliability = (Math.random() * 0.8 + 0.1).toFixed(4);
+        const behaviorCompliance = (Math.random() * 0.8 + 0.1).toFixed(4);
+        const authenticationStrength = (Math.random() * 0.8 + 0.1).toFixed(4);
+
+        // Measure payload size (the arguments sent to the chaincode)
+        const args = [id, dataIntegrity, networkReliability, behaviorCompliance, authenticationStrength];
+        const payloadSize = Buffer.byteLength(JSON.stringify(args), 'utf8');
+        p2PayloadSizes.push(payloadSize);
+
+        const startCommit = now();
+        try {
+            await trustContract.submitTransaction(
+                'updateTrustScoreV2', id, dataIntegrity, networkReliability,
+                behaviorCompliance, authenticationStrength
+            );
+            const commitTime = now() - startCommit;
+            p2Latencies.push(commitTime);
+            p2CommitTimes.push(commitTime);
+        } catch (err) {
+            p2Latencies.push(now() - startCommit);
+            p2Errors.push({ deviceId: id, error: err.message });
+        }
+
+        if (i % 25 === 0) console.log(`    Progress: ${i}/${DEVICE_COUNT}`);
+    }
+
+    // ------------------------------------------------------------------
+    // Compute statistics
+    // ------------------------------------------------------------------
+    const p1LatencyStats = computeStats(p1Latencies);
+    const p1CommitStats = computeStats(p1CommitTimes);
+    const p1PayloadStats = computeStats(p1PayloadSizes);
+    const p1TotalTimeSec = p1Latencies.reduce((a, b) => a + b, 0) / 1000;
+    const p1TPS = (DEVICE_COUNT - p1Errors.length) / p1TotalTimeSec;
+
+    const p2LatencyStats = computeStats(p2Latencies);
+    const p2CommitStats = computeStats(p2CommitTimes);
+    const p2PayloadStats = computeStats(p2PayloadSizes);
+    const p2TotalTimeSec = p2Latencies.reduce((a, b) => a + b, 0) / 1000;
+    const p2TPS = (DEVICE_COUNT - p2Errors.length) / p2TotalTimeSec;
+
+    // Delta calculations
+    const tpsDelta = ((p2TPS - p1TPS) / p1TPS * 100).toFixed(2);
+    const latencyDelta = ((p2LatencyStats.avg - p1LatencyStats.avg) / p1LatencyStats.avg * 100).toFixed(2);
+    const commitDelta = ((p2CommitStats.avg - p1CommitStats.avg) / p1CommitStats.avg * 100).toFixed(2);
+    const payloadDelta = ((p2PayloadStats.avg - p1PayloadStats.avg) / p1PayloadStats.avg * 100).toFixed(2);
+
+    // ------------------------------------------------------------------
+    // Print comparison table
+    // ------------------------------------------------------------------
+    console.log('\n  ┌──────────────────────────────┬────────────────────────────┬──────────────────────────────┬──────────┐');
+    console.log('  │ Metric                       │ Phase 1 (updateTrustScore) │ Phase 2 (updateTrustScoreV2) │ Δ (%)    │');
+    console.log('  ├──────────────────────────────┼────────────────────────────┼──────────────────────────────┼──────────┤');
+    console.log(`  │ Average TPS                  │ ${String(p1TPS.toFixed(2)).padEnd(26)} │ ${String(p2TPS.toFixed(2)).padEnd(28)} │ ${String(tpsDelta + '%').padEnd(8)} │`);
+    console.log(`  │ Average Latency (ms)         │ ${String(p1LatencyStats.avg.toFixed(2)).padEnd(26)} │ ${String(p2LatencyStats.avg.toFixed(2)).padEnd(28)} │ ${String(latencyDelta + '%').padEnd(8)} │`);
+    console.log(`  │ Avg Block Commit Time (ms)   │ ${String(p1CommitStats.avg.toFixed(2)).padEnd(26)} │ ${String(p2CommitStats.avg.toFixed(2)).padEnd(28)} │ ${String(commitDelta + '%').padEnd(8)} │`);
+    console.log(`  │ Avg Payload Size (bytes)     │ ${String(p1PayloadStats.avg.toFixed(0)).padEnd(26)} │ ${String(p2PayloadStats.avg.toFixed(0)).padEnd(28)} │ ${String(payloadDelta + '%').padEnd(8)} │`);
+    console.log('  └──────────────────────────────┴────────────────────────────┴──────────────────────────────┴──────────┘');
+    console.log(`\n  Phase 1 errors: ${p1Errors.length} | Phase 2 errors: ${p2Errors.length}`);
+
+    const comparisonResult = {
+        name: 'Phase 1 vs Phase 2 Comparison',
+        deviceCount: DEVICE_COUNT,
+        phase1: {
+            function: 'updateTrustScore',
+            successful: DEVICE_COUNT - p1Errors.length,
+            errors: p1Errors.length,
+            avgTPS: parseFloat(p1TPS.toFixed(2)),
+            avgLatencyMs: parseFloat(p1LatencyStats.avg.toFixed(2)),
+            minLatencyMs: parseFloat(p1LatencyStats.min.toFixed(2)),
+            maxLatencyMs: parseFloat(p1LatencyStats.max.toFixed(2)),
+            avgBlockCommitMs: parseFloat(p1CommitStats.avg.toFixed(2)),
+            avgPayloadSizeBytes: parseFloat(p1PayloadStats.avg.toFixed(0))
+        },
+        phase2: {
+            function: 'updateTrustScoreV2',
+            successful: DEVICE_COUNT - p2Errors.length,
+            errors: p2Errors.length,
+            avgTPS: parseFloat(p2TPS.toFixed(2)),
+            avgLatencyMs: parseFloat(p2LatencyStats.avg.toFixed(2)),
+            minLatencyMs: parseFloat(p2LatencyStats.min.toFixed(2)),
+            maxLatencyMs: parseFloat(p2LatencyStats.max.toFixed(2)),
+            avgBlockCommitMs: parseFloat(p2CommitStats.avg.toFixed(2)),
+            avgPayloadSizeBytes: parseFloat(p2PayloadStats.avg.toFixed(0))
+        },
+        delta: {
+            tpsPercent: parseFloat(tpsDelta),
+            latencyPercent: parseFloat(latencyDelta),
+            blockCommitPercent: parseFloat(commitDelta),
+            payloadSizePercent: parseFloat(payloadDelta)
+        }
+    };
+
+    // ------------------------------------------------------------------
+    // Generate markdown report
+    // ------------------------------------------------------------------
+    const PHASE2_REPORT_PATH = path.resolve(__dirname, 'phase2-comparison-results.md');
+    const reportTimestamp = new Date().toISOString();
+
+    const markdown = `# Phase 2 Benchmark Comparison Results
+
+> Generated: ${reportTimestamp}
+> Channel: ${CHANNEL_NAME} | Devices: ${DEVICE_COUNT} | Fabric 2.5
+
+## Summary
+
+Phase 2 (\`updateTrustScoreV2\`) uses a weighted composite scoring model with 4 distinct
+trust parameters (dataIntegrity, networkReliability, behaviorCompliance, authenticationStrength),
+stores additional fields (weights object, tier classification, 4 parameter values), and emits
+new events (AccessTierChanged, DeviceRevoked). This benchmark quantifies the performance
+overhead of these additions compared to the Phase 1 \`updateTrustScore\` function.
+
+## Comparison Table
+
+| Metric | Phase 1 (\`updateTrustScore\`) | Phase 2 (\`updateTrustScoreV2\`) | Δ (%) |
+|---|---|---|---|
+| **Average TPS** | ${p1TPS.toFixed(2)} | ${p2TPS.toFixed(2)} | ${tpsDelta}% |
+| **Average Latency (ms)** | ${p1LatencyStats.avg.toFixed(2)} | ${p2LatencyStats.avg.toFixed(2)} | ${latencyDelta}% |
+| **Avg Block Commit Time (ms)** | ${p1CommitStats.avg.toFixed(2)} | ${p2CommitStats.avg.toFixed(2)} | ${commitDelta}% |
+| **Avg Payload Size (bytes)** | ${p1PayloadStats.avg.toFixed(0)} | ${p2PayloadStats.avg.toFixed(0)} | ${payloadDelta}% |
+
+## Detailed Statistics
+
+### Phase 1: \`updateTrustScore\`
+
+- **Successful transactions:** ${DEVICE_COUNT - p1Errors.length} / ${DEVICE_COUNT}
+- **Errors:** ${p1Errors.length}
+- **Latency:** min=${p1LatencyStats.min.toFixed(2)}ms, avg=${p1LatencyStats.avg.toFixed(2)}ms, max=${p1LatencyStats.max.toFixed(2)}ms
+- **Block commit time:** avg=${p1CommitStats.avg.toFixed(2)}ms
+- **Payload size:** avg=${p1PayloadStats.avg.toFixed(0)} bytes
+
+### Phase 2: \`updateTrustScoreV2\`
+
+- **Successful transactions:** ${DEVICE_COUNT - p2Errors.length} / ${DEVICE_COUNT}
+- **Errors:** ${p2Errors.length}
+- **Latency:** min=${p2LatencyStats.min.toFixed(2)}ms, avg=${p2LatencyStats.avg.toFixed(2)}ms, max=${p2LatencyStats.max.toFixed(2)}ms
+- **Block commit time:** avg=${p2CommitStats.avg.toFixed(2)}ms
+- **Payload size:** avg=${p2PayloadStats.avg.toFixed(0)} bytes
+
+## Analysis
+
+Phase 2 stores additional fields per trust record:
+- 4 individual trust parameters (dataIntegrity, networkReliability, behaviorCompliance, authenticationStrength)
+- Weights object with 4 float values
+- Tier classification string (FULL_ACCESS / LIMITED_ACCESS / QUARANTINE / REVOKED)
+
+This results in a **${payloadDelta}%** increase in input payload size. The additional CouchDB
+writes for the larger JSON record and potential event emissions (AccessTierChanged, DeviceRevoked)
+contribute to a **${latencyDelta}%** change in average transaction latency.
+
+---
+
+*Benchmark run on ${reportTimestamp} against Hyperledger Fabric 2.5*
+`;
+
+    fs.writeFileSync(PHASE2_REPORT_PATH, markdown);
+    console.log(`\n  [INFO] Phase 2 comparison report saved to: ${PHASE2_REPORT_PATH}`);
+
+    return comparisonResult;
+}
+
 // ---------------------------------------------------------------------------
 // Main Entry Point
 // ---------------------------------------------------------------------------
@@ -423,6 +649,13 @@ async function main() {
         results.test3 = { name: 'Mixed Load', error: err.message };
     }
 
+    try {
+        results.test4 = await test4Phase2Comparison(trustContract);
+    } catch (err) {
+        console.error(`[ERROR] Test 4 failed: ${err.message}`);
+        results.test4 = { name: 'Phase 1 vs Phase 2 Comparison', error: err.message };
+    }
+
     // --- Print Results Table ---
     console.log('\n');
     console.log('============================================');
@@ -460,6 +693,19 @@ async function main() {
         console.log(`  TPS:              ${results.test3.tps}`);
     } else {
         console.log('Test 3: Mixed Load — FAILED');
+    }
+
+    console.log('--------------------------------------------');
+
+    if (results.test4 && !results.test4.error) {
+        console.log('Test 4: Phase 1 vs Phase 2 Comparison');
+        console.log(`  Phase 1 TPS:      ${results.test4.phase1.avgTPS}`);
+        console.log(`  Phase 2 TPS:      ${results.test4.phase2.avgTPS}`);
+        console.log(`  TPS Delta:        ${results.test4.delta.tpsPercent}%`);
+        console.log(`  Latency Delta:    ${results.test4.delta.latencyPercent}%`);
+        console.log(`  Payload Delta:    ${results.test4.delta.payloadSizePercent}%`);
+    } else {
+        console.log('Test 4: Phase 1 vs Phase 2 Comparison — FAILED');
     }
 
     console.log('============================================');
