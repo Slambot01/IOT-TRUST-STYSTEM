@@ -58,7 +58,16 @@ const TRUST_CHAINCODE = 'trust-score';
 
 // Events to subscribe to
 const DID_EVENTS = ['DIDRegistered', 'DIDRevoked', 'DeviceAuthenticated'];
-const TRUST_EVENTS = ['TrustScoreUpdated', 'DeviceBlacklisted'];
+const TRUST_EVENTS_PHASE1 = ['TrustScoreUpdated', 'DeviceBlacklisted'];
+const TRUST_EVENTS_PHASE2 = ['AccessTierChanged', 'DeviceRevoked'];
+const TRUST_EVENTS = [...TRUST_EVENTS_PHASE1, ...TRUST_EVENTS_PHASE2];
+
+// Phase 2 console color codes
+const COLORS = {
+    MAGENTA: '\x1b[35m',
+    BRIGHT_RED: '\x1b[91m',
+    RESET: '\x1b[0m'
+};
 
 // ---------------------------------------------------------------------------
 // Globals
@@ -100,9 +109,12 @@ function startWebSocketServer() {
         // Send a welcome message
         ws.send(JSON.stringify({
             type: 'CONNECTION_ESTABLISHED',
+            messageType: 'system',
             payload: {
                 message: 'Connected to IoT Trust Event Listener',
                 subscribedEvents: [...DID_EVENTS, ...TRUST_EVENTS],
+                phase1Events: [...DID_EVENTS, ...TRUST_EVENTS_PHASE1],
+                phase2Events: [...TRUST_EVENTS_PHASE2],
                 channel: CHANNEL_NAME
             },
             timestamp: timestamp()
@@ -195,7 +207,34 @@ async function getOrCreateWallet(ccp) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Determines the messageType for a given event name.
+ *
+ * Phase 1 events get messageType 'phase1', Phase 2 events get their own
+ * specific messageType so the frontend can distinguish them.
+ *
+ * @param {string} eventName - The chaincode event name.
+ * @returns {string} One of: 'phase1', 'phase2_tier_change', 'phase2_revoked'
+ */
+function getMessageType(eventName) {
+    switch (eventName) {
+        case 'AccessTierChanged':
+            return 'phase2_tier_change';
+        case 'DeviceRevoked':
+            return 'phase2_revoked';
+        default:
+            return 'phase1';
+    }
+}
+
+/**
  * Creates a chaincode event handler that logs and broadcasts events.
+ *
+ * Phase 1 events are logged normally. Phase 2 events get colored prefixes:
+ *   - AccessTierChanged → magenta [TIER CHANGE]
+ *   - DeviceRevoked     → bright red [REVOKED]
+ *
+ * All WebSocket broadcasts include a `messageType` field so the frontend
+ * dashboard can distinguish Phase 1 vs Phase 2 events.
  *
  * @param {string} chaincodeId - The chaincode name for context.
  * @returns {Function} Event handler function.
@@ -213,11 +252,21 @@ function createEventHandler(chaincodeId) {
             }
         }
 
-        log('EVENT', `[${chaincodeId}] ${eventName}: ${JSON.stringify(payload)}`);
+        // Phase 2 events get colored console output with distinct prefixes
+        if (eventName === 'AccessTierChanged') {
+            console.log(`${COLORS.MAGENTA}[${timestamp()}] [TIER CHANGE] [${chaincodeId}] Device ${payload.deviceId || '?'}: ${payload.previousTier || '?'} → ${payload.newTier || '?'} (score: ${payload.score || '?'})${COLORS.RESET}`);
+        } else if (eventName === 'DeviceRevoked') {
+            console.log(`${COLORS.BRIGHT_RED}[${timestamp()}] [REVOKED] [${chaincodeId}] Device ${payload.deviceId || '?'} ACCESS REVOKED — ${payload.reason || 'score below threshold'} (score: ${payload.score || '?'})${COLORS.RESET}`);
+        } else {
+            // Phase 1 events — standard logging
+            log('EVENT', `[${chaincodeId}] ${eventName}: ${JSON.stringify(payload)}`);
+        }
 
-        // Broadcast to all WebSocket clients
+        // Broadcast to all WebSocket clients with messageType for frontend discrimination
+        const messageType = getMessageType(eventName);
         broadcastToClients({
             type: eventName,
+            messageType: messageType,
             chaincode: chaincodeId,
             payload: payload,
             timestamp: timestamp()
