@@ -10,22 +10,35 @@ import threading
 import time
 import random
 from trust_score import EWMATrustScoreEngine
+from behavioral_parameters import BehavioralParameterEngine
 from behavioral_monitor import generate_normal_device_behavior, generate_attack_behavior
+from attack_simulator import AttackSimulator
 
 app = Flask(__name__)
 # Enable CORS for Member 3's dashboard on any port
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# Global Engine instance shared across all requests
+# Global Engine instances shared across all requests
 engine = EWMATrustScoreEngine(alpha=0.6, beta=0.3, t_min=0.2, t_max=0.8, update_interval=30)
+engine_v2 = BehavioralParameterEngine(w1=0.35, w2=0.30, w3=0.20, w4=0.15, alpha=0.6, learning_threshold=3)
 
 # Setup simulation devices for the background thread
 device_ids = [f'device_{i:03d}' for i in range(100)]
 malicious_devices = random.sample(device_ids, 20)
-attack_types = ['sybil', 'replay', 'mitm']
+attack_types = ['ddos', 'data_exfiltration', 'slow_poison']
 device_attack_map = {dev_id: random.choice(attack_types) for dev_id in malicious_devices}
 
 blockchain_acknowledgements = []
+
+# V2 Tier logic mappings
+def get_v2_tier(score):
+    if score >= 80.0:
+        return 'FULL_ACCESS'
+    elif score >= 50.0:
+        return 'RESTRICTED'
+    elif score >= 20.0:
+        return 'QUARANTINED'
+    return 'REVOKED'
 
 def background_update_task():
     """
@@ -37,16 +50,31 @@ def background_update_task():
         # 1. Simulate transactions for this interval
         for dev_id in device_ids:
             if dev_id in malicious_devices:
-                behavior = generate_attack_behavior(dev_id, device_attack_map[dev_id])
+                if cycle <= engine_v2.learning_threshold:
+                    behavior = generate_normal_device_behavior(dev_id, cycle)
+                else:
+                    behavior = generate_attack_behavior(dev_id, device_attack_map[dev_id], cycle - engine_v2.learning_threshold)
             else:
                 behavior = generate_normal_device_behavior(dev_id, cycle)
                 
-            for _ in range(behavior['successful_transactions']):
+            # Phase 1 Logic
+            successful_tx = max(0, behavior['request_rate'] - behavior['error_count'])
+            for _ in range(successful_tx):
                 engine.record_transaction(dev_id, success=True, is_malicious=behavior['is_malicious'])
-            for _ in range(behavior['failed_transactions']):
+            for _ in range(behavior['error_count']):
                 engine.record_transaction(dev_id, success=False, is_malicious=behavior['is_malicious'])
                 
-        # 2. Process all updates
+            # Phase 2 Logic
+            engine_v2.process_behavior(
+                dev_id,
+                actual_rate=behavior['request_rate'],
+                actual_size=behavior['payload_size'],
+                endpoints=behavior['endpoints'],
+                error_count=behavior['error_count'],
+                total_requests=behavior['total_requests']
+            )
+                
+        # 2. Process all Phase 1 updates
         engine.run_update_cycle(device_ids)
         cycle += 1
         
@@ -107,8 +135,6 @@ def receive_blockchain_update():
         return jsonify({"error": "No JSON payload provided"}), 400
         
     blockchain_acknowledgements.append(data)
-    # Log quietly so it doesn't clutter the console too much
-    # print(f"[API] Logged update for {data.get('device_id', 'unknown')}")
     
     return jsonify({"success": True}), 200
 
@@ -126,6 +152,62 @@ def get_stats():
         'average_score': round(average_score, 4),
         'paper_parameters': stats['paper_parameters']
     }), 200
+
+# ==============================================================================
+# PHASE 2 / V2 ENDPOINTS
+# ==============================================================================
+
+@app.route('/api/trust/v2/all', methods=['GET'])
+def get_all_v2_trust_scores():
+    result = []
+    for device_id, score in engine_v2.trust_scores.items():
+        device_data = engine_v2.device_baselines.get(device_id, {})
+        
+        # In learning phase, we might not have p1-p4 computed yet
+        result.append({
+            'deviceId': device_id,
+            'score': round(score, 4),
+            'compositeScore': round(device_data.get('last_composite', 100.0), 4),
+            'tier': get_v2_tier(score),
+            'isLearning': device_data.get('is_learning', True),
+            'subScores': {
+                'p1_request_rate': round(device_data.get('last_p1', 100.0), 4),
+                'p2_endpoint_consistency': round(device_data.get('last_p2', 100.0), 4),
+                'p3_payload_size': round(device_data.get('last_p3', 100.0), 4),
+                'p4_error_rate': round(device_data.get('last_p4', 100.0), 4)
+            }
+        })
+        
+    return jsonify(result), 200
+
+@app.route('/api/trust/v2/tier/<tier_name>', methods=['GET'])
+def get_v2_devices_by_tier(tier_name):
+    tier_name = tier_name.upper()
+    valid_tiers = ['FULL_ACCESS', 'RESTRICTED', 'QUARANTINED', 'REVOKED']
+    
+    if tier_name not in valid_tiers:
+        return jsonify({"error": f"Invalid tier. Must be one of {valid_tiers}"}), 400
+        
+    result = []
+    for device_id, score in engine_v2.trust_scores.items():
+        if get_v2_tier(score) == tier_name:
+            device_data = engine_v2.device_baselines.get(device_id, {})
+            result.append({
+                'deviceId': device_id,
+                'score': round(score, 4),
+                'tier': tier_name,
+                'isLearning': device_data.get('is_learning', True)
+            })
+            
+    return jsonify(result), 200
+
+@app.route('/api/trust/v2/comparison', methods=['GET'])
+def get_v2_comparison():
+    dummy_engine = EWMATrustScoreEngine(alpha=0.6, beta=0.3, t_min=0.2, t_max=0.8, update_interval=30)
+    sim = AttackSimulator(dummy_engine)
+    
+    comparison_data = sim.compare_detection_systems(num_devices=10)
+    return jsonify(comparison_data), 200
 
 @app.route('/api/health', methods=['GET'])
 def health_check():

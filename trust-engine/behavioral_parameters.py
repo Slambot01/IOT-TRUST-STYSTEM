@@ -98,6 +98,13 @@ class BehavioralParameterEngine:
         # Step B: Compute Composite Score
         composite_score = self.compute_composite_score(p1, p2, p3, p4)
         
+        # Store for V2 Dashboard API
+        device_data['last_p1'] = p1
+        device_data['last_p2'] = p2
+        device_data['last_p3'] = p3
+        device_data['last_p4'] = p4
+        device_data['last_composite'] = composite_score
+        
         # Step C: Combine with Phase 1 EWMA smoothing logic
         final_score = self.compute_final_score(device_id, composite_score, self.alpha)
         
