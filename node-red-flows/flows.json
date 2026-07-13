@@ -1,0 +1,97 @@
+[
+    {
+        "id": "tab_trust_engine",
+        "type": "tab",
+        "label": "Behavioral Trust Simulator",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "inject_node_1",
+        "type": "inject",
+        "z": "tab_trust_engine",
+        "name": "Trigger Every 30s",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "30",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 150,
+        "y": 100,
+        "wires": [
+            [
+                "function_node_1"
+            ]
+        ]
+    },
+    {
+        "id": "function_node_1",
+        "type": "function",
+        "z": "tab_trust_engine",
+        "name": "Generate 4-Param Behavior",
+        "func": "let devices = [];\nlet cycle = context.get(\"cycle\") || 1;\n\nfor (let i = 0; i < 100; i++) {\n    let deviceId = \"device_\" + i.toString().padStart(3, '0');\n    let isMalicious = i < 20; // First 20 are malicious\n    let behaviorType = \"NORMAL\";\n    \n    let requestRate, payloadSize, endpoints, errorCount, totalRequests, knownEndpoints, totalEndpoints;\n    \n    if (!isMalicious || cycle <= 3) {\n        requestRate = Math.floor(Math.random() * (12 - 8 + 1)) + 8;\n        knownEndpoints = Math.floor(Math.random() * (3 - 2 + 1)) + 2;\n        totalEndpoints = knownEndpoints;\n        endpoints = [];\n        for (let e=0; e<knownEndpoints; e++) endpoints.push(\"/api/data/\" + e);\n        payloadSize = Math.floor(Math.random() * (220 - 180 + 1)) + 180;\n        errorCount = Math.floor(Math.random() * 2);\n        totalRequests = requestRate;\n    } else {\n        if (i < 7) {\n            behaviorType = \"DDOS_ATTACK\";\n            requestRate = Math.floor(Math.random() * (400 - 250 + 1)) + 250;\n            payloadSize = Math.floor(Math.random() * (220 - 180 + 1)) + 180;\n            knownEndpoints = 2;\n            totalEndpoints = 2;\n            endpoints = [\"/api/data/0\", \"/api/data/1\"];\n            errorCount = Math.floor(Math.random() * (20 - 10 + 1)) + 10;\n            totalRequests = requestRate;\n        } else if (i < 14) {\n            behaviorType = \"DATA_EXFILTRATION_ATTACK\";\n            requestRate = Math.floor(Math.random() * (12 - 8 + 1)) + 8;\n            payloadSize = Math.floor(Math.random() * (15000 - 8000 + 1)) + 8000;\n            knownEndpoints = 2;\n            let extra = Math.floor(Math.random() * (43 - 23 + 1)) + 23;\n            totalEndpoints = knownEndpoints + extra;\n            endpoints = [\"/api/data/0\", \"/api/data/1\"];\n            for(let e=0; e<extra; e++) endpoints.push(\"/api/hidden/\" + e);\n            errorCount = Math.floor(Math.random() * 2);\n            totalRequests = requestRate;\n        } else {\n            behaviorType = \"SLOW_POISON_ATTACK\";\n            let driftFactor = Math.min(cycle - 3, 8);\n            requestRate = Math.floor(Math.random() * (12 - 8 + 1)) + 8 + (driftFactor * 2);\n            payloadSize = Math.floor(Math.random() * (220 - 180 + 1)) + 180 + (driftFactor * 50);\n            knownEndpoints = 2;\n            totalEndpoints = knownEndpoints + driftFactor;\n            endpoints = [\"/api/data/0\", \"/api/data/1\"];\n            for(let e=0; e<driftFactor; e++) endpoints.push(\"/api/poison/\" + e);\n            errorCount = Math.floor(Math.random() * 2) + (driftFactor * 1);\n            totalRequests = requestRate;\n        }\n    }\n    \n    devices.push({\n        device_id: deviceId,\n        timestamp: new Date().toISOString(),\n        request_rate: requestRate,\n        known_endpoints: knownEndpoints,\n        total_endpoints: totalEndpoints,\n        payload_size: payloadSize,\n        endpoints: endpoints,\n        error_count: errorCount,\n        total_requests: totalRequests,\n        is_malicious: isMalicious,\n        behavior_type: behaviorType,\n        cycle: cycle\n    });\n}\n\ncontext.set(\"cycle\", cycle + 1);\n\nmsg.payload = devices;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 100,
+        "wires": [
+            [
+                "http_request_node_1",
+                "debug_node_1"
+            ]
+        ]
+    },
+    {
+        "id": "http_request_node_1",
+        "type": "http request",
+        "z": "tab_trust_engine",
+        "name": "POST to Trust Engine API",
+        "method": "POST",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "http://localhost:3002/api/trust/update",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "authType": "",
+        "senderr": false,
+        "x": 650,
+        "y": 100,
+        "wires": [
+            [
+                "debug_node_1"
+            ]
+        ]
+    },
+    {
+        "id": "debug_node_1",
+        "type": "debug",
+        "z": "tab_trust_engine",
+        "name": "Debug Output",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 630,
+        "y": 180,
+        "wires": []
+    }
+]
