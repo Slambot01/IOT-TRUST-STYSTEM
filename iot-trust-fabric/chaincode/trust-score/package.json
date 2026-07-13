@@ -1,7 +1,7 @@
 {
   "name": "trust-score-chaincode",
-  "version": "1.0.0",
-  "description": "Trust Score Chaincode for IoT Trust System — computes EWMA-based trust scores, classifies devices, and emits events on Hyperledger Fabric",
+  "version": "2.0.0",
+  "description": "Trust Score Chaincode for IoT Trust System — Phase 1 EWMA-based scoring + Phase 2 weighted composite 4-tier access control on Hyperledger Fabric",
   "main": "index.js",
   "engines": {
     "node": ">=18.0.0"
