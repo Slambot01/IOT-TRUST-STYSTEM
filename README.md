@@ -19,12 +19,12 @@ The system is distributed across three distinct layers, providing separation of 
 ```mermaid
 graph TD
     subgraph Frontend Layer
-        Dashboard[React/Vite Dashboard\n(Port 5173)]
+        Dashboard[React/Vite Dashboard<br/>(Port 5173)]
     end
 
     subgraph Backend Layer
-        Gateway[Node.js Gateway Server\n(Port 3001)]
-        TrustEngine[Python Trust Engine\n(Port 3002)]
+        Gateway[Node.js Gateway Server<br/>(Port 3001)]
+        TrustEngine[Python Trust Engine<br/>(Port 3002)]
     end
 
     subgraph Blockchain Layer
